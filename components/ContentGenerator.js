@@ -76,6 +76,16 @@ export default function ContentGenerator({ apiKey, onChangeKey }) {
   const [errors, setErrors]             = useState({});
   const [copied, setCopied]             = useState("");
   const [generating, setGenerating]     = useState(false);
+  const [fixedHashtags, setFixedHashtags] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return localStorage.getItem("fixedHashtags") || "";
+  });
+  const [templates, setTemplates] = useState(() => {
+    if (typeof window === "undefined") return [];
+    return JSON.parse(localStorage.getItem("salonTemplates") || "[]");
+  });
+  const [showTemplateSave, setShowTemplateSave] = useState(false);
+  const [templateName, setTemplateName] = useState("");
 
   const processFile = useCallback((file) => {
     if (!file || !file.type.startsWith("image/")) return;
@@ -137,15 +147,54 @@ export default function ContentGenerator({ apiKey, onChangeKey }) {
     });
   };
 
+  const handleFixedHashtagsChange = (val) => {
+    setFixedHashtags(val);
+    localStorage.setItem("fixedHashtags", val);
+  };
+
+  const saveTemplate = () => {
+    if (!templateName.trim()) return;
+    const newTemplate = {
+      id: Date.now(),
+      name: templateName.trim(),
+      data: { salonName, treatment, selectedStyles, targetAge, season, freeText, fixedHashtags },
+    };
+    const updated = [...templates, newTemplate];
+    setTemplates(updated);
+    localStorage.setItem("salonTemplates", JSON.stringify(updated));
+    setTemplateName("");
+    setShowTemplateSave(false);
+  };
+
+  const loadTemplate = (t) => {
+    setSalonName(t.data.salonName || "");
+    setTreatment(t.data.treatment || "");
+    setSelectedStyles(t.data.selectedStyles || []);
+    setTargetAge(t.data.targetAge || "");
+    setSeason(t.data.season || "");
+    setFreeText(t.data.freeText || "");
+    handleFixedHashtagsChange(t.data.fixedHashtags || "");
+  };
+
+  const deleteTemplate = (id) => {
+    const updated = templates.filter(t => t.id !== id);
+    setTemplates(updated);
+    localStorage.setItem("salonTemplates", JSON.stringify(updated));
+  };
+
   // ---- renderers ----
   const renderInstagram = (r) => {
-    const full = `${r.catchcopy}\n\n${r.body}\n\n${r.hashtags?.join(" ")}`;
+    const fixedTags = fixedHashtags.trim()
+      ? fixedHashtags.trim().split(/[\s　]+/).filter(t => t)
+      : [];
+    const allHashtags = [...(r.hashtags || []), ...fixedTags];
+    const full = `${r.catchcopy}\n\n${r.body}\n\n${allHashtags.join(" ")}`;
     return (
       <div>
         <div style={S.card}>
           <div style={S.igCatch}>{r.catchcopy}</div>
           <div style={S.igBody}>{r.body?.split("\\n").map((l, i) => <div key={i}>{l || <br />}</div>)}</div>
-          <div style={S.igTags}>{r.hashtags?.join(" ")}</div>
+          <div style={S.igTags}>{allHashtags.join(" ")}</div>
         </div>
         <CopyBtn text={full} id="ig" copied={copied} onCopy={handleCopy} />
       </div>
@@ -234,6 +283,20 @@ export default function ContentGenerator({ apiKey, onChangeKey }) {
         <div style={S.layout}>
           {/* INPUT */}
           <div style={S.inputPanel}>
+            {/* テンプレート */}
+            {templates.length > 0 && (
+              <div style={S.templateSection}>
+                <div style={S.templateLabel}>保存済みテンプレート</div>
+                <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+                  {templates.map(t => (
+                    <div key={t.id} style={S.templateChipWrap}>
+                      <button style={S.templateChip} onClick={() => loadTemplate(t)}>{t.name}</button>
+                      <button style={S.templateDel} onClick={() => deleteTemplate(t.id)}>✕</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <Inp label="サロン名" required>
               <input style={S.input} placeholder="例：Hair Salon Bloom" value={salonName} onChange={e => setSalonName(e.target.value)} />
             </Inp>
@@ -264,6 +327,19 @@ export default function ContentGenerator({ apiKey, onChangeKey }) {
             <Inp label="こだわり・補足">
               <textarea style={S.textarea} rows={2} placeholder="例：骨格補正、再現性が高い、自宅で簡単スタイリング..." value={freeText} onChange={e => setFreeText(e.target.value)} />
             </Inp>
+            <Inp label="固定ハッシュタグ（Instagram に毎回追加）">
+              <textarea style={S.textarea} rows={2} placeholder="例：#新宿美容院 #西新宿 #新宿駅" value={fixedHashtags} onChange={e => handleFixedHashtagsChange(e.target.value)} />
+            </Inp>
+            {/* テンプレート保存 */}
+            {showTemplateSave ? (
+              <div style={{ display:"flex", gap:8 }}>
+                <input style={{ ...S.input, flex:1 }} placeholder="テンプレート名（例：Bloom定番）" value={templateName} onChange={e => setTemplateName(e.target.value)} onKeyDown={e => e.key === "Enter" && saveTemplate()} />
+                <button style={S.tplSaveBtn} onClick={saveTemplate}>保存</button>
+                <button style={S.tplCancelBtn} onClick={() => setShowTemplateSave(false)}>✕</button>
+              </div>
+            ) : (
+              <button style={S.tplOpenBtn} onClick={() => setShowTemplateSave(true)}>＋ 現在の入力をテンプレートに保存</button>
+            )}
             <Inp label="スタイル写真（任意）">
               <div style={{ ...S.drop, ...(dragging ? S.dropDrag : {}), ...(image ? S.dropFilled : {}) }}
                 onClick={() => !image && fileRef.current.click()}
@@ -423,4 +499,12 @@ const S = {
   hpbNum: { width:20, height:20, borderRadius:"50%", background:"#2a3a1a", color:"#a8c4a0", fontSize:11, fontWeight:900, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, marginTop:2 },
   tagCat: { color:"#4a6070", fontSize:10, fontWeight:700, width:50, flexShrink:0 },
   tagChip: { padding:"3px 10px", borderRadius:10, background:"#2a3a20", color:"#a8c4a0", fontSize:11, fontWeight:700 },
+  templateSection: { background:"#141c28", border:"1px solid #2a3545", borderRadius:10, padding:"12px 14px", display:"flex", flexDirection:"column", gap:8 },
+  templateLabel: { color:"#4a6080", fontSize:11, fontWeight:700, letterSpacing:"0.08em" },
+  templateChipWrap: { display:"flex", alignItems:"center" },
+  templateChip: { padding:"5px 12px", borderRadius:"12px 0 0 12px", border:"1px solid #2a4060", borderRight:"none", background:"#0d1e30", color:"#7ab8e8", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"'Noto Sans JP', sans-serif" },
+  templateDel: { padding:"5px 8px", borderRadius:"0 12px 12px 0", border:"1px solid #2a4060", background:"#0d1e30", color:"#4a6070", fontSize:10, cursor:"pointer", fontFamily:"'Noto Sans JP', sans-serif" },
+  tplOpenBtn: { padding:"9px 0", background:"transparent", border:"1px dashed #2a3545", borderRadius:10, color:"#4a6070", fontFamily:"'Noto Sans JP', sans-serif", fontSize:12, cursor:"pointer", width:"100%", transition:"all 0.2s" },
+  tplSaveBtn: { padding:"9px 16px", background:"#1a3a5a", border:"none", borderRadius:10, color:"#7ab8e8", fontFamily:"'Noto Sans JP', sans-serif", fontWeight:700, fontSize:13, cursor:"pointer" },
+  tplCancelBtn: { padding:"9px 12px", background:"transparent", border:"1px solid #2a3545", borderRadius:10, color:"#4a6070", fontFamily:"'Noto Sans JP', sans-serif", fontSize:13, cursor:"pointer" },
 };
