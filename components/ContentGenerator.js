@@ -5,7 +5,6 @@ import { callClaude, fileToBase64 } from "../lib/claude";
 const OUTPUT_TABS = [
   { id: "instagram", label: "Instagram", icon: "📸", color: "#e8a8c4" },
   { id: "blog",      label: "ブログ",    icon: "✍️",  color: "#a8c4e8" },
-  { id: "google",    label: "Google",    icon: "🗺",   color: "#a8e8c4" },
   { id: "hotpepper", label: "HPB",       icon: "💈",  color: "#e8c4a0" },
 ];
 
@@ -37,16 +36,6 @@ ${info}
 JSONのみ（バッククォート不要）:
 {"title":"","lead":"","sections":[{"heading":"","body":""}],"closing":""}`,
 
-  google: (info, hasImg) => `あなたはGoogleビジネスプロフィールの最適化専門家です。以下のサロン情報${hasImg ? "と添付スタイル写真" : ""}をもとに、Googleビジネスプロフィールの「最新情報」投稿テキストを作成してください。
-
-サロン情報:
-${info}
-
-要件: 投稿タイトル50字以内/本文300字以内・地域名+施術名キーワード含む・予約誘導あり
-
-JSONのみ（バッククォート不要）:
-{"title":"","body":"","cta":"今すぐ予約"}`,
-
   hotpepper: (info, hasImg) => `あなたはホットペッパービューティーの掲載最適化専門家です。以下のサロン情報${hasImg ? "と添付スタイル写真" : ""}をもとに、HPBスタイル登録用テキスト一式を作成してください。
 
 サロン情報:
@@ -58,35 +47,95 @@ JSONのみ（バッククォート不要）:
 {"styleTitle":"","description":"","points":["","",""],"tags":{"length":[],"color":[],"image":[],"face":[]}}`,
 };
 
+const BRAND_PROMPT = (info) => `あなたはブランドストラテジストです。以下のサロン情報を分析し、全媒体共通のブランドの方向性を定義してください。
+
+サロン情報:
+${info}
+
+JSONのみで返答（バッククォート不要）:
+{"tone":"例：親しみやすくプロフェッショナル","keywords":["キーワード1","キーワード2","キーワード3"],"targetAppeal":"ターゲット層への主な訴求ポイント一文","styleNote":"文章・表現スタイルの具体的な指示"}`;
+
+const REVIEW_PROMPTS = {
+  instagram: (json) => `あなたはプロの美容サロンSNSマーケターです。以下のInstagram投稿文をレビューし、品質を評価してください。
+
+投稿内容:
+${json}
+
+評価基準: 文章の自然さ・集客訴求力・媒体特性への適合度・ハッシュタグの有効性
+
+JSONのみで返答（バッククォート不要）:
+{"score":4,"good":"良い点を一文で","improve":"改善提案（問題なければnull）"}`,
+
+  blog: (json) => `あなたはプロの美容サロンブログライターです。以下のブログ記事をレビューし、品質を評価してください。
+
+記事内容:
+${json}
+
+評価基準: SEO適合度・読みやすさ・情報量・予約への誘導力
+
+JSONのみで返答（バッククォート不要）:
+{"score":4,"good":"良い点を一文で","improve":"改善提案（問題なければnull）"}`,
+
+  hotpepper: (json) => `あなたはホットペッパービューティーの掲載最適化専門家です。以下のHPBコンテンツをレビューし、品質を評価してください。
+
+コンテンツ:
+${json}
+
+評価基準: タイトルのインパクト・説明文の訴求力・ポイントの明確さ・タグの網羅性
+
+JSONのみで返答（バッククォート不要）:
+{"score":4,"good":"良い点を一文で","improve":"改善提案（問題なければnull）"}`,
+};
+
 export default function ContentGenerator({ apiKey, onChangeKey }) {
-  const [salonName, setSalonName]       = useState("");
-  const [treatment, setTreatment]       = useState("");
+  // Input state
+  const [salonName, setSalonName]           = useState("");
+  const [treatment, setTreatment]           = useState("");
   const [selectedStyles, setSelectedStyles] = useState([]);
-  const [targetAge, setTargetAge]       = useState("");
-  const [season, setSeason]             = useState("");
-  const [freeText, setFreeText]         = useState("");
-  const [image, setImage]               = useState(null);
-  const [imageBase64, setImageBase64]   = useState(null);
-  const [dragging, setDragging]         = useState(false);
+  const [targetAge, setTargetAge]           = useState("");
+  const [season, setSeason]                 = useState("");
+  const [freeText, setFreeText]             = useState("");
+  const [image, setImage]                   = useState(null);
+  const [imageBase64, setImageBase64]       = useState(null);
+  const [dragging, setDragging]             = useState(false);
   const fileRef = useRef();
 
-  const [activeTab, setActiveTab]       = useState("instagram");
-  const [results, setResults]           = useState({});
-  const [loading, setLoading]           = useState({});
-  const [errors, setErrors]             = useState({});
-  const [copied, setCopied]             = useState("");
-  const [generating, setGenerating]     = useState(false);
-  const [fixedHashtags, setFixedHashtags] = useState(() => {
+  // Generation state
+  const [activeTab, setActiveTab]           = useState("instagram");
+  const [results, setResults]               = useState({});
+  const [loading, setLoading]               = useState({});
+  const [errors, setErrors]                 = useState({});
+  const [copied, setCopied]                 = useState("");
+  const [generating, setGenerating]         = useState(false);
+
+  // Brand analysis state
+  const [brandAnalysis, setBrandAnalysis]   = useState(null);
+  const [analyzingBrand, setAnalyzingBrand] = useState(false);
+
+  // Review state
+  const [reviews, setReviews]               = useState({});
+  const [reviewing, setReviewing]           = useState({});
+
+  // Persistence state
+  const [fixedHashtags, setFixedHashtags]   = useState(() => {
     if (typeof window === "undefined") return "";
     return localStorage.getItem("fixedHashtags") || "";
   });
-  const [templates, setTemplates] = useState(() => {
+  const [templates, setTemplates]           = useState(() => {
     if (typeof window === "undefined") return [];
     return JSON.parse(localStorage.getItem("salonTemplates") || "[]");
   });
   const [showTemplateSave, setShowTemplateSave] = useState(false);
-  const [templateName, setTemplateName] = useState("");
+  const [templateName, setTemplateName]     = useState("");
 
+  // History state
+  const [history, setHistory]               = useState(() => {
+    if (typeof window === "undefined") return [];
+    return JSON.parse(localStorage.getItem("generationHistory") || "[]");
+  });
+  const [showHistory, setShowHistory]       = useState(false);
+
+  // --- Handlers ---
   const processFile = useCallback((file) => {
     if (!file || !file.type.startsWith("image/")) return;
     setImage(URL.createObjectURL(file));
@@ -112,23 +161,58 @@ export default function ContentGenerator({ apiKey, onChangeKey }) {
 
   const isReady = salonName.trim() && treatment.trim();
 
-  const generateOne = async (tabId) => {
+  // --- AI functions ---
+  const analyzeBrand = async () => {
+    try {
+      const { clean } = await callClaude({
+        apiKey,
+        maxTokens: 600,
+        messages: [{ role: "user", content: [{ type: "text", text: BRAND_PROMPT(buildInfo()) }] }],
+      });
+      return JSON.parse(clean);
+    } catch { return null; }
+  };
+
+  const reviewOne = async (tabId, result) => {
+    setReviewing(p => ({ ...p, [tabId]: true }));
+    try {
+      const { clean } = await callClaude({
+        apiKey,
+        maxTokens: 400,
+        messages: [{ role: "user", content: [{ type: "text", text: REVIEW_PROMPTS[tabId](JSON.stringify(result)) }] }],
+      });
+      setReviews(p => ({ ...p, [tabId]: JSON.parse(clean) }));
+    } catch { /* non-critical */ }
+    finally { setReviewing(p => ({ ...p, [tabId]: false })); }
+  };
+
+  const generateOne = async (tabId, brand = null) => {
     const info = buildInfo();
+    const brandNote = brand
+      ? `\n\n【ブランドの方向性】\nトーン: ${brand.tone}\nキーワード: ${brand.keywords?.join("・")}\n訴求: ${brand.targetAppeal}\n${brand.styleNote}`
+      : "";
+
     setLoading(p => ({ ...p, [tabId]: true }));
     setErrors(p => ({ ...p, [tabId]: null }));
+    setReviews(p => ({ ...p, [tabId]: null }));
 
+    const promptText = PROMPTS[tabId](info + brandNote, !!imageBase64);
     const content = imageBase64
       ? [
           { type: "image", source: { type: "base64", media_type: imageBase64.mediaType, data: imageBase64.data } },
-          { type: "text", text: PROMPTS[tabId](info, true) },
+          { type: "text", text: promptText },
         ]
-      : [{ type: "text", text: PROMPTS[tabId](info, false) }];
+      : [{ type: "text", text: promptText }];
 
     try {
       const { clean } = await callClaude({ apiKey, messages: [{ role: "user", content }] });
-      setResults(p => ({ ...p, [tabId]: JSON.parse(clean) }));
+      const result = JSON.parse(clean);
+      setResults(p => ({ ...p, [tabId]: result }));
+      reviewOne(tabId, result); // fire and forget
+      return result;
     } catch (e) {
       setErrors(p => ({ ...p, [tabId]: e.message || "生成に失敗しました" }));
+      return null;
     } finally {
       setLoading(p => ({ ...p, [tabId]: false }));
     }
@@ -137,7 +221,41 @@ export default function ContentGenerator({ apiKey, onChangeKey }) {
   const generateAll = async () => {
     if (!isReady) return;
     setGenerating(true);
-    await Promise.all(OUTPUT_TABS.map(t => generateOne(t.id)));
+    setResults({});
+    setErrors({});
+    setReviews({});
+
+    // Step 1: Brand analysis
+    setAnalyzingBrand(true);
+    const brand = await analyzeBrand();
+    setBrandAnalysis(brand);
+    setAnalyzingBrand(false);
+
+    // Step 2: Generate all platforms in parallel
+    const allResults = {};
+    await Promise.all(
+      OUTPUT_TABS.map(async (t) => {
+        const result = await generateOne(t.id, brand);
+        if (result) allResults[t.id] = result;
+      })
+    );
+
+    // Step 3: Save to history
+    if (Object.keys(allResults).length > 0) {
+      const entry = {
+        id: Date.now(),
+        date: new Date().toISOString(),
+        input: { salonName, treatment, selectedStyles, targetAge, season, freeText, fixedHashtags },
+        brandAnalysis: brand,
+        results: allResults,
+      };
+      setHistory(prev => {
+        const updated = [entry, ...prev].slice(0, 30);
+        localStorage.setItem("generationHistory", JSON.stringify(updated));
+        return updated;
+      });
+    }
+
     setGenerating(false);
   };
 
@@ -182,7 +300,23 @@ export default function ContentGenerator({ apiKey, onChangeKey }) {
     localStorage.setItem("salonTemplates", JSON.stringify(updated));
   };
 
-  // ---- renderers ----
+  const loadFromHistory = (entry) => {
+    setSalonName(entry.input.salonName || "");
+    setTreatment(entry.input.treatment || "");
+    setSelectedStyles(entry.input.selectedStyles || []);
+    setTargetAge(entry.input.targetAge || "");
+    setSeason(entry.input.season || "");
+    setFreeText(entry.input.freeText || "");
+    handleFixedHashtagsChange(entry.input.fixedHashtags || "");
+    setResults(entry.results || {});
+    setBrandAnalysis(entry.brandAnalysis || null);
+    setReviews({});
+    setErrors({});
+    setActiveTab("instagram");
+    setShowHistory(false);
+  };
+
+  // --- Renderers ---
   const renderInstagram = (r) => {
     const fixedTags = fixedHashtags.trim()
       ? fixedHashtags.trim().split(/[\s　]+/).filter(t => t)
@@ -196,6 +330,7 @@ export default function ContentGenerator({ apiKey, onChangeKey }) {
           <div style={S.igBody}>{r.body?.split("\\n").map((l, i) => <div key={i}>{l || <br />}</div>)}</div>
           <div style={S.igTags}>{allHashtags.join(" ")}</div>
         </div>
+        <ReviewBadge review={reviews.instagram} reviewing={!!reviewing.instagram} />
         <CopyBtn text={full} id="ig" copied={copied} onCopy={handleCopy} />
       </div>
     );
@@ -216,21 +351,8 @@ export default function ContentGenerator({ apiKey, onChangeKey }) {
           ))}
           <div style={S.blogClosing}>{r.closing}</div>
         </div>
+        <ReviewBadge review={reviews.blog} reviewing={!!reviewing.blog} />
         <CopyBtn text={full} id="blog" copied={copied} onCopy={handleCopy} />
-      </div>
-    );
-  };
-
-  const renderGoogle = (r) => {
-    const full = `${r.title}\n\n${r.body}\n\n▶ ${r.cta}`;
-    return (
-      <div>
-        <div style={S.card}>
-          <div style={S.googleTitle}>{r.title}</div>
-          <div style={S.bodyText}>{r.body}</div>
-          <div style={S.googleCta}>▶ {r.cta}</div>
-        </div>
-        <CopyBtn text={full} id="google" copied={copied} onCopy={handleCopy} />
       </div>
     );
   };
@@ -261,12 +383,19 @@ export default function ContentGenerator({ apiKey, onChangeKey }) {
             </div>
           )}
         </div>
+        <ReviewBadge review={reviews.hotpepper} reviewing={!!reviewing.hotpepper} />
         <CopyBtn text={full} id="hpb" copied={copied} onCopy={handleCopy} />
       </div>
     );
   };
 
-  const RENDERERS = { instagram: renderInstagram, blog: renderBlog, google: renderGoogle, hotpepper: renderHPB };
+  const RENDERERS = { instagram: renderInstagram, blog: renderBlog, hotpepper: renderHPB };
+
+  const btnLabel = analyzingBrand
+    ? <span style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}><span style={S.spinner} />ブランド分析中...</span>
+    : generating
+      ? <span style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}><span style={S.spinner} />生成中...</span>
+      : "⚡ 3媒体まとめて生成";
 
   return (
     <div style={S.root}>
@@ -276,14 +405,18 @@ export default function ContentGenerator({ apiKey, onChangeKey }) {
         <div style={S.header}>
           <p style={S.headerEn}>SALON CONTENT STUDIO</p>
           <h1 style={S.headerJa}>集客コンテンツ<span style={S.accent}>一括生成</span></h1>
-          <p style={S.headerSub}>Instagram・ブログ・Google・ホットペッパーを同時に作成</p>
-          <button style={S.keyBtn} onClick={onChangeKey}>🔑 APIキーを変更</button>
+          <p style={S.headerSub}>Instagram・ブログ・ホットペッパーを同時に作成</p>
+          <div style={{ display:"flex", gap:8, justifyContent:"center", flexWrap:"wrap" }}>
+            <button style={S.keyBtn} onClick={onChangeKey}>🔑 APIキーを変更</button>
+            <button style={S.keyBtn} onClick={() => setShowHistory(true)}>
+              📂 履歴{history.length > 0 ? `（${history.length}件）` : ""}
+            </button>
+          </div>
         </div>
 
         <div style={S.layout}>
           {/* INPUT */}
           <div style={S.inputPanel}>
-            {/* テンプレート */}
             {templates.length > 0 && (
               <div style={S.templateSection}>
                 <div style={S.templateLabel}>保存済みテンプレート</div>
@@ -297,6 +430,7 @@ export default function ContentGenerator({ apiKey, onChangeKey }) {
                 </div>
               </div>
             )}
+
             <Inp label="サロン名" required>
               <input style={S.input} placeholder="例：Hair Salon Bloom" value={salonName} onChange={e => setSalonName(e.target.value)} />
             </Inp>
@@ -330,16 +464,17 @@ export default function ContentGenerator({ apiKey, onChangeKey }) {
             <Inp label="固定ハッシュタグ（Instagram に毎回追加）">
               <textarea style={S.textarea} rows={2} placeholder="例：#新宿美容院 #西新宿 #新宿駅" value={fixedHashtags} onChange={e => handleFixedHashtagsChange(e.target.value)} />
             </Inp>
-            {/* テンプレート保存 */}
+
             {showTemplateSave ? (
               <div style={{ display:"flex", gap:8 }}>
-                <input style={{ ...S.input, flex:1 }} placeholder="テンプレート名（例：Bloom定番）" value={templateName} onChange={e => setTemplateName(e.target.value)} onKeyDown={e => e.key === "Enter" && saveTemplate()} />
+                <input style={{ ...S.input, flex:1 }} placeholder="テンプレート名" value={templateName} onChange={e => setTemplateName(e.target.value)} onKeyDown={e => e.key === "Enter" && saveTemplate()} />
                 <button style={S.tplSaveBtn} onClick={saveTemplate}>保存</button>
                 <button style={S.tplCancelBtn} onClick={() => setShowTemplateSave(false)}>✕</button>
               </div>
             ) : (
               <button style={S.tplOpenBtn} onClick={() => setShowTemplateSave(true)}>＋ 現在の入力をテンプレートに保存</button>
             )}
+
             <Inp label="スタイル写真（任意）">
               <div style={{ ...S.drop, ...(dragging ? S.dropDrag : {}), ...(image ? S.dropFilled : {}) }}
                 onClick={() => !image && fileRef.current.click()}
@@ -361,16 +496,27 @@ export default function ContentGenerator({ apiKey, onChangeKey }) {
               <input ref={fileRef} type="file" accept="image/*" style={{ display:"none" }} onChange={e => processFile(e.target.files[0])} />
             </Inp>
 
-            <button style={{ ...S.genBtn, ...(!isReady || generating ? S.genBtnOff : {}) }} onClick={generateAll} disabled={!isReady || generating}>
-              {generating
-                ? <span style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}><span style={S.spinner} />生成中...</span>
-                : "⚡ 4媒体まとめて生成"}
+            <button
+              style={{ ...S.genBtn, ...(!isReady || generating || analyzingBrand ? S.genBtnOff : {}) }}
+              onClick={generateAll}
+              disabled={!isReady || generating || analyzingBrand}>
+              {btnLabel}
             </button>
             {!isReady && <p style={{ color:"#3a4550", fontSize:11, textAlign:"center", marginTop:6 }}>※ サロン名と施術内容を入力してください</p>}
           </div>
 
           {/* OUTPUT */}
           <div style={S.outputPanel}>
+            {brandAnalysis && (
+              <div style={S.brandBadge}>
+                <span style={S.brandLabel}>ブランド分析</span>
+                <span style={S.brandTone}>{brandAnalysis.tone}</span>
+                {brandAnalysis.keywords?.map(k => (
+                  <span key={k} style={S.brandKeyword}>{k}</span>
+                ))}
+              </div>
+            )}
+
             <div style={S.tabs}>
               {OUTPUT_TABS.map(t => {
                 const done = !!results[t.id];
@@ -396,21 +542,43 @@ export default function ContentGenerator({ apiKey, onChangeKey }) {
                 const err = errors[activeTab];
                 const ld  = loading[activeTab];
                 if (ld) return <Center><Dots color={tab.color} /><p style={{ color:"#7a8090", fontSize:13, marginTop:16 }}>{tab.label}を生成中...</p></Center>;
-                if (err) return <div style={S.errorBox}>⚠️ {err}<br /><button style={S.retryBtn} onClick={() => generateOne(activeTab)}>再試行</button></div>;
+                if (err) return <div style={S.errorBox}>⚠️ {err}<br /><button style={S.retryBtn} onClick={() => generateOne(activeTab, brandAnalysis)}>再試行</button></div>;
                 if (!res && !Object.keys(results).length) return (
                   <Center>
                     <div style={{ fontSize:48, marginBottom:16 }}>✨</div>
-                    <p style={{ color:"#5a6070", fontSize:14, lineHeight:1.8, marginBottom:20 }}>左のフォームを入力して<br />「4媒体まとめて生成」を押してください</p>
+                    <p style={{ color:"#5a6070", fontSize:14, lineHeight:1.8, marginBottom:20 }}>左のフォームを入力して<br />「3媒体まとめて生成」を押してください</p>
                     {OUTPUT_TABS.map(t => <div key={t.id} style={{ color:"#3a4050", fontSize:13, marginBottom:6 }}>{t.icon} {t.label}</div>)}
                   </Center>
                 );
-                if (!res) return <Center><p style={{ color:"#5a6070", fontSize:13, marginBottom:12 }}>このタブはまだ生成されていません</p><button style={S.retryBtn} onClick={() => generateOne(activeTab)}>単体で生成</button></Center>;
+                if (!res) return <Center><p style={{ color:"#5a6070", fontSize:13, marginBottom:12 }}>このタブはまだ生成されていません</p><button style={S.retryBtn} onClick={() => generateOne(activeTab, brandAnalysis)}>単体で生成</button></Center>;
                 return RENDERERS[activeTab]?.(res);
               })()}
             </div>
           </div>
         </div>
       </div>
+
+      {/* History Panel */}
+      {showHistory && (
+        <div style={S.historyOverlay} onClick={() => setShowHistory(false)}>
+          <div style={S.historyPanel} onClick={e => e.stopPropagation()}>
+            <div style={S.historyHeader}>
+              <span style={S.historyTitle}>📂 生成履歴</span>
+              <button style={S.historyClose} onClick={() => setShowHistory(false)}>✕</button>
+            </div>
+            {history.length === 0 ? (
+              <div style={S.historyEmpty}>まだ履歴がありません</div>
+            ) : history.map(entry => (
+              <div key={entry.id} style={S.historyEntry}>
+                <div style={S.historyDate}>{new Date(entry.date).toLocaleString("ja-JP")}</div>
+                <div style={S.historySalon}>{entry.input.salonName || "（サロン名なし）"}</div>
+                <div style={S.historyTreatment}>{(entry.input.treatment || "").slice(0, 40)}{(entry.input.treatment || "").length > 40 ? "..." : ""}</div>
+                <button style={S.historyLoad} onClick={() => loadFromHistory(entry)}>読み込む</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -447,6 +615,31 @@ function Dots({ color }) {
   );
 }
 
+function ReviewBadge({ review, reviewing }) {
+  if (reviewing) return (
+    <div style={S.reviewLoading}>
+      <span style={S.reviewSpinner} />
+      AI レビュー中...
+    </div>
+  );
+  if (!review) return null;
+  const good = review.score >= 4;
+  return (
+    <div style={{ ...S.reviewBadge, borderColor: good ? "#2a5a40" : "#5a4a10", background: good ? "#0d1e18" : "#1a1808" }}>
+      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom: review.improve ? 6 : 0 }}>
+        <span style={{ color: good ? "#6ab880" : "#c8a040", fontSize:12, fontWeight:900 }}>
+          {good ? "✓" : "⚠"} {review.score}/5
+        </span>
+        <span style={{ color:"#4a6070", fontSize:10, fontWeight:700 }}>AI レビュー</span>
+        <span style={{ color: good ? "#5a9870" : "#9a8030", fontSize:12 }}>{review.good}</span>
+      </div>
+      {review.improve && (
+        <div style={{ color:"#8a7840", fontSize:11, lineHeight:1.6 }}>💡 {review.improve}</div>
+      )}
+    </div>
+  );
+}
+
 const S = {
   root: { minHeight:"100vh", background:"#111820", fontFamily:"'Noto Sans JP', sans-serif", position:"relative" },
   noise: { position:"fixed", inset:0, background:"radial-gradient(ellipse at 10% 90%, #0d2040 0%, transparent 50%), radial-gradient(ellipse at 90% 10%, #1a0d30 0%, transparent 50%)", pointerEvents:"none" },
@@ -473,6 +666,10 @@ const S = {
   genBtnOff: { background:"#1a2530", color:"#3a4550", cursor:"not-allowed" },
   spinner: { width:14, height:14, border:"2px solid rgba(255,255,255,0.2)", borderTop:"2px solid #fff", borderRadius:"50%", animation:"spin 0.8s linear infinite", display:"inline-block" },
   outputPanel: { flex:1, minWidth:300 },
+  brandBadge: { display:"flex", flexWrap:"wrap", gap:6, alignItems:"center", marginBottom:10, padding:"8px 12px", background:"#0d1820", border:"1px solid #1a3040", borderRadius:10 },
+  brandLabel: { color:"#3a5070", fontSize:10, fontWeight:700, letterSpacing:"0.08em", marginRight:2 },
+  brandTone: { color:"#7ab8e8", fontSize:12, fontWeight:700 },
+  brandKeyword: { padding:"2px 8px", borderRadius:8, background:"#1a2535", color:"#5a8090", fontSize:11, border:"1px solid #2a3545" },
   tabs: { display:"flex", gap:6, flexWrap:"wrap" },
   tab: { flex:1, minWidth:70, padding:"10px 8px", background:"#141c28", border:"1.5px solid #2a3545", borderBottom:"none", borderRadius:"10px 10px 0 0", color:"#4a6070", fontFamily:"'Noto Sans JP', sans-serif", fontWeight:700, fontSize:12, cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:4, transition:"all 0.15s" },
   tabActive: { background:"#1a2535", color:"#c0cce0", borderBottom:"2px solid" },
@@ -492,13 +689,14 @@ const S = {
   blogH: { color:"#7ab8e8", fontWeight:700, fontSize:14, marginBottom:6 },
   blogClosing: { marginTop:14, paddingTop:14, borderTop:"1px solid #2a3545", color:"#a8c4a0", fontSize:13, lineHeight:1.8, fontWeight:700 },
   bodyText: { color:"#b0bcc8", fontSize:13, lineHeight:1.9 },
-  googleTitle: { fontWeight:900, fontSize:15, color:"#c0cce0", marginBottom:10 },
-  googleCta: { display:"inline-block", padding:"8px 18px", background:"#1a3a5a", borderRadius:8, color:"#7ab8e8", fontWeight:700, fontSize:13, marginTop:10 },
   hpbTitle: { fontWeight:900, fontSize:15, color:"#e8c4a0", marginBottom:10 },
   hpbPoint: { display:"flex", alignItems:"flex-start", gap:10, color:"#b0bcc8", fontSize:13, lineHeight:1.7 },
   hpbNum: { width:20, height:20, borderRadius:"50%", background:"#2a3a1a", color:"#a8c4a0", fontSize:11, fontWeight:900, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, marginTop:2 },
   tagCat: { color:"#4a6070", fontSize:10, fontWeight:700, width:50, flexShrink:0 },
   tagChip: { padding:"3px 10px", borderRadius:10, background:"#2a3a20", color:"#a8c4a0", fontSize:11, fontWeight:700 },
+  reviewBadge: { borderRadius:8, border:"1px solid", padding:"8px 12px", marginBottom:10 },
+  reviewLoading: { display:"flex", alignItems:"center", gap:8, color:"#4a6070", fontSize:12, padding:"6px 0", marginBottom:8 },
+  reviewSpinner: { width:10, height:10, border:"1.5px solid #2a3545", borderTop:"1.5px solid #7ab8e8", borderRadius:"50%", animation:"spin 0.8s linear infinite", display:"inline-block" },
   templateSection: { background:"#141c28", border:"1px solid #2a3545", borderRadius:10, padding:"12px 14px", display:"flex", flexDirection:"column", gap:8 },
   templateLabel: { color:"#4a6080", fontSize:11, fontWeight:700, letterSpacing:"0.08em" },
   templateChipWrap: { display:"flex", alignItems:"center" },
@@ -507,4 +705,15 @@ const S = {
   tplOpenBtn: { padding:"9px 0", background:"transparent", border:"1px dashed #2a3545", borderRadius:10, color:"#4a6070", fontFamily:"'Noto Sans JP', sans-serif", fontSize:12, cursor:"pointer", width:"100%", transition:"all 0.2s" },
   tplSaveBtn: { padding:"9px 16px", background:"#1a3a5a", border:"none", borderRadius:10, color:"#7ab8e8", fontFamily:"'Noto Sans JP', sans-serif", fontWeight:700, fontSize:13, cursor:"pointer" },
   tplCancelBtn: { padding:"9px 12px", background:"transparent", border:"1px solid #2a3545", borderRadius:10, color:"#4a6070", fontFamily:"'Noto Sans JP', sans-serif", fontSize:13, cursor:"pointer" },
+  historyOverlay: { position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1000, display:"flex", justifyContent:"flex-end" },
+  historyPanel: { width:360, maxWidth:"90vw", background:"#141c28", borderLeft:"1px solid #2a3545", height:"100vh", display:"flex", flexDirection:"column", padding:"24px 20px", gap:12, overflowY:"auto" },
+  historyHeader: { display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 },
+  historyTitle: { color:"#c0cce0", fontSize:15, fontWeight:900 },
+  historyClose: { background:"transparent", border:"none", color:"#4a6070", fontSize:18, cursor:"pointer" },
+  historyEmpty: { color:"#3a4550", fontSize:13, textAlign:"center", marginTop:40 },
+  historyEntry: { background:"#1a2535", border:"1px solid #2a3545", borderRadius:10, padding:"12px 14px", display:"flex", flexDirection:"column", gap:4, flexShrink:0 },
+  historyDate: { color:"#3a5070", fontSize:10 },
+  historySalon: { color:"#a0b8c8", fontSize:13, fontWeight:700 },
+  historyTreatment: { color:"#5a7080", fontSize:11, lineHeight:1.5 },
+  historyLoad: { marginTop:6, padding:"6px 14px", background:"#0d1e30", border:"1px solid #2a4060", borderRadius:8, color:"#7ab8e8", fontFamily:"'Noto Sans JP', sans-serif", fontSize:12, fontWeight:700, cursor:"pointer", alignSelf:"flex-start" },
 };
