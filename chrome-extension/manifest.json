@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "HPB タグ入力支援",
+  "version": "2.3",
+  "description": "サロンAIツールで生成したタグをホットペッパービューティに自動入力します。",
+  "permissions": ["activeTab", "scripting", "storage", "clipboardWrite"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "host_permissions": [
+    "*://*.hotpepper.jp/*",
+    "*://localhost/*",
+    "*://127.0.0.1/*",
+    "*://*.preview.app.github.dev/*",
+    "*://*.github.dev/*",
+    "*://salon-ai-tool.vercel.app/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "HPB タグ入力支援"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.hotpepper.jp/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://localhost/*",
+        "*://127.0.0.1/*",
+        "*://*.preview.app.github.dev/*",
+        "*://*.github.dev/*",
+        "*://salon-ai-tool.vercel.app/*"
+      ],
+      "js": ["bridge.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

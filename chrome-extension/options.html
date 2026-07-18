@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>エリア設定 — HPB タグ入力支援</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="container">
+    <h1>⚙️ エリア設定</h1>
+    <p class="subtitle">サロンの最寄り駅を登録すると、同じ路線の近隣駅をエリアタグとして自動生成します。</p>
+
+    <section class="card">
+      <label class="label">サロンの最寄り駅</label>
+      <div class="input-wrap">
+        <input id="stationInput" type="text" placeholder="例：渋谷、表参道、新宿…" autocomplete="off" />
+        <div id="suggestions" class="suggestions"></div>
+      </div>
+      <p id="stationStatus" class="status"></p>
+    </section>
+
+    <section class="card" id="previewSection" style="display:none">
+      <label class="label">生成されるエリアタグ（最大10個）</label>
+      <p class="hint">チェックを外したタグは除外されます</p>
+      <div id="stationPreview" class="tag-grid"></div>
+      <div class="range-wrap">
+        <label class="label-sm">検索範囲（近隣 <span id="radiusVal">5</span> 駅）</label>
+        <input id="radiusRange" type="range" min="2" max="12" value="5" />
+      </div>
+    </section>
+
+    <section class="card" id="styleSection">
+      <label class="label">スタイルタグ（固定・10個）</label>
+      <p class="hint">スタイルタグは変更できません</p>
+      <div id="styleTags" class="tag-grid tag-grid--fixed"></div>
+    </section>
+
+    <div class="actions">
+      <button id="saveBtn" class="btn-primary">設定を保存</button>
+      <p id="saveStatus" class="save-status"></p>
+    </div>
+  </div>
+  <script src="stations.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>
